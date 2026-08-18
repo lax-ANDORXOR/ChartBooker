@@ -1,0 +1,1386 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ChartBooker · 联机卡牌</title>
+    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <style>
+        :root {
+            --card-w: 64px;
+            --card-h: 92px;
+            --t: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', 'PingFang SC', Roboto, sans-serif;
+            background: #f0f2f5;
+            min-height: 100vh;
+            overflow: hidden;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            touch-action: manipulation;
+        }
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,.6);
+            z-index: 300; display: flex; align-items: center; justify-content: center;
+            backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+        }
+        .modal-content {
+            background: #fff; border-radius: 20px; padding: 28px; width: 90%;
+            max-width: 440px; max-height: 85vh; overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,.3);
+        }
+        .modal-content h2 { margin-bottom: 16px; font-size: 20px; font-weight: 700; color: #1f2937; }
+        .btn {
+            padding: 10px 20px; background: #1f2937; color: #fff; border: none;
+            border-radius: 10px; font-size: 14px; cursor: pointer; transition: all var(--t);
+            min-height: 42px; display: inline-flex; align-items: center; justify-content: center;
+            gap: 6px; white-space: nowrap; touch-action: manipulation;
+        }
+        .btn:hover { background: #374151; }
+        .btn-outline { background: #fff; color: #1f2937; border: 2px solid #e5e7eb; }
+        .btn-outline:hover { border-color: #3b82f6; color: #3b82f6; background: #eff6ff; }
+        .btn-danger { background: #ef4444; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-sm { padding: 6px 12px; min-height: 32px; font-size: 12px; }
+        .btn-xs { padding: 2px 8px; min-height: 22px; font-size: 10px; border-radius: 50%; }
+        .game-card {
+            width: var(--card-w); height: var(--card-h); border-radius: 10px;
+            background: #fff; border: 2px solid #e5e7eb; display: flex; flex-direction: column;
+            justify-content: space-between; align-items: center; padding: 6px;
+            cursor: pointer; transition: all var(--t); box-shadow: 0 1px 3px rgba(0,0,0,.1);
+            touch-action: manipulation; text-align: center;
+        }
+        .game-card:hover { transform: translateY(-4px); box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+        .game-card .icon { font-size: 24px; }
+        .game-card .name { font-size: 9px; font-weight: 600; color: #6b7280; }
+        .game-card .val { font-size: 22px; font-weight: 800; }
+        .game-card.type-key { border-color: #ef4444; } .game-card.type-key .val, .game-card.type-key .name { color: #ef4444; }
+        .game-card.type-tone { border-color: #3b82f6; } .game-card.type-tone .val, .game-card.type-tone .name { color: #3b82f6; }
+        .game-card.type-effect { border-color: #22c55e; } .game-card.type-effect .val, .game-card.type-effect .name { color: #22c55e; }
+        .game-card.type-line { border-color: #eab308; } .game-card.type-line .val, .game-card.type-line .name { color: #ca8a04; }
+        .game-card.type-skill { border-color: #1f2937; } .game-card.type-skill .val, .game-card.type-skill .name { color: #1f2937; }
+        .game-card.available { animation: glow 1s infinite; transform: translateY(-8px); }
+        .game-card.unavailable { opacity: .5; filter: grayscale(.8); cursor: not-allowed; }
+        @keyframes glow {
+            0% { box-shadow: 0 0 5px rgba(59,130,246,.5); }
+            50% { box-shadow: 0 0 15px rgba(59,130,246,.9); }
+            100% { box-shadow: 0 0 5px rgba(59,130,246,.5); }
+        }
+        .card-back {
+            width: var(--card-w); height: var(--card-h); border-radius: 10px;
+            background: repeating-linear-gradient(45deg, #e5e7eb, #e5e7eb 10px, #d1d5db 10px, #d1d5db 20px);
+            border: 2px solid #9ca3af; display: flex; align-items: center; justify-content: center;
+            font-weight: 800; color: #6b7280; font-size: 16px;
+        }
+        .card-back-small {
+            width: 36px; height: 50px; border-radius: 4px; background: repeating-linear-gradient(45deg, #e5e7eb, #e5e7eb 8px, #d1d5db 8px, #d1d5db 16px);
+            border: 2px solid #9ca3af; font-size: 12px; font-weight: 700; color: #6b7280;
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+        .game-container { position: relative; width: 100vw; height: 100vh; background: #fff; overflow: hidden; }
+        .top-bar {
+            position: absolute; top: 15px; left: 0; right: 0; display: flex;
+            justify-content: space-between; padding: 0 20px; align-items: center; z-index: 20;
+        }
+        .turn-indicator { font-size: 14px; color: #6b7280; }
+        .turn-indicator span { font-weight: 600; color: #1f2937; }
+        .timer-display { font-size: 14px; font-weight: 600; color: #ef4444; }
+        .status-msg {
+            position: absolute; top: 55px; left: 50%; transform: translateX(-50%);
+            background: #fff; padding: 8px 18px; border-radius: 20px; font-size: 13px;
+            color: #4b5563; box-shadow: 0 2px 10px rgba(0,0,0,.1); z-index: 15;
+        }
+        .chart-area {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            display: flex; gap: 20px; flex-wrap: wrap; justify-content: center;
+            max-width: 800px; z-index: 5;
+        }
+        .chart-card {
+            background: #fff; border: 3px solid #e5e7eb; border-radius: 14px; padding: 12px;
+            width: 170px; text-align: center; box-shadow: 0 2px 6px rgba(0,0,0,.08);
+            cursor: pointer; transition: all var(--t); position: relative;
+        }
+        .chart-card.highlight { border-color: #3b82f6; box-shadow: 0 0 0 4px rgba(59,130,246,.3); }
+        .chart-card.completed { border-color: #22c55e; background: #f0fdf4; cursor: default; }
+        .chart-card.damaged { border-color: #6b7280; background: #f3f4f6; cursor: not-allowed; filter: grayscale(.7); }
+        .req-slot {
+            display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+            width: 42px; height: 42px; border: 2px dashed #d1d5db; border-radius: 10px;
+            margin: 4px; font-weight: 700; color: #9ca3af; font-size: 10px; background: #fff;
+        }
+        .req-slot.filled { border-style: solid; border-color: #3b82f6; color: #1f2937; background: #eff6ff; }
+        .hand-area {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: -15px; padding: 12px; flex-wrap: nowrap; justify-content: center;
+            max-width: 95vw; z-index: 10;
+        }
+        .hand-area .game-card { margin-left: -12px; }
+        .hand-area .game-card:first-child { margin-left: 0; }
+        .draw-pile { position: absolute; bottom: 170px; left: 30px; cursor: pointer; text-align: center; z-index: 11; }
+        .discard-pile { position: absolute; top: 50%; right: 30px; transform: translateY(-50%); display: flex; flex-direction: column; gap: 4px; z-index: 10; }
+        .discard-card {
+            width: 42px; height: 60px; border-radius: 4px; border: 1px solid #ccc;
+            background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            font-size: 10px; font-weight: 600; transform: rotate(2deg); position: relative;
+        }
+        .player-avatar {
+            width: 24px; height: 24px; border-radius: 50%; border: 2px solid #e5e7eb;
+            background: #9ca3af; display: flex; align-items: center; justify-content: center;
+            color: #fff; font-size: 10px; font-weight: 700; flex-shrink: 0; overflow: hidden;
+        }
+        .player-avatar img { width: 100%; height: 100%; object-fit: cover; }
+        .player-area { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+        .player-info { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #6b7280; }
+        .active-player .player-avatar { border-color: #ff9800; box-shadow: 0 0 0 4px rgba(255,152,0,.4); }
+        .active-text { color: #ff9800; font-weight: 700; }
+        .player-cards-back { display: flex; gap: 2px; margin-left: 8px; flex-wrap: wrap; justify-content: center; }
+        .eliminated .player-avatar { filter: grayscale(1); opacity: .5; }
+        .eliminated .player-info span { color: #9ca3af; text-decoration: line-through; }
+        .hidden { display: none !important; }
+        .player-list-item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 8px 12px; border-bottom: 1px solid #f3f4f6;
+        }
+        .ready-badge { padding: 2px 8px; border-radius: 12px; font-size: 11px; background: #e5e7eb; color: #6b7280; }
+        .ready-badge.ready { background: #d1fae5; color: #065f46; }
+        .input-field {
+            width: 100%; padding: 10px 12px; border: 2px solid #e5e7eb; border-radius: 10px;
+            font-size: 14px; outline: none; transition: border-color var(--t); min-height: 44px;
+        }
+        .input-field:focus { border-color: #3b82f6; }
+        .slider-container { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+        .slider { flex: 1; -webkit-appearance: none; height: 6px; border-radius: 3px; background: #e5e7eb; outline: none; }
+        .slider::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%; background: #3b82f6; cursor: pointer; }
+        .pointer-arrow {
+            position: absolute; width: 0; height: 0; border-left: 12px solid transparent;
+            border-right: 12px solid transparent; border-bottom: 20px solid #ff9800;
+            animation: bounce .8s infinite alternate; z-index: 30;
+        }
+        @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-10px); } }
+        .shake { animation: shake .3s ease; }
+        @keyframes shake {
+            0%,100% { transform: translateX(0); } 20% { transform: translateX(-4px); }
+            40% { transform: translateX(4px); } 60% { transform: translateX(-2px); } 80% { transform: translateX(2px); }
+        }
+        .profile-avatar { width: 64px; height: 64px; border-radius: 50%; border: 3px solid #e5e7eb; background: #e5e7eb; object-fit: cover; }
+        @media (max-width:768px) {
+            .chart-card { width: 130px; padding: 8px; }
+            .req-slot { width: 32px; height: 32px; font-size: 8px; }
+            .hand-area { gap: -20px; padding: 8px; overflow-x: auto; max-width: 100vw; }
+            .hand-area .game-card { width: 50px; height: 70px; margin-left: -8px; }
+            .discard-pile { right: 5px; }
+            .draw-pile { left: 5px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="startScreen" class="modal-overlay" style="background:#f0f2f5;z-index:100;">
+        <div class="modal-content" style="max-width:380px;text-align:center;">
+            <div style="font-size:32px;font-weight:800;margin-bottom:16px;">ChartBooker</div>
+            <div style="margin-bottom:12px;">
+                <img id="profileAvatar" src="" alt="头像" class="profile-avatar" style="background:#e5e7eb;">
+                <input type="file" id="avatarFileInput" accept="image/*" class="hidden">
+                <button class="btn btn-outline btn-sm" onclick="document.getElementById('avatarFileInput').click()">上传头像</button>
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:16px;">
+                <input type="text" id="playerNameInput" class="input-field" maxlength="12" placeholder="输入昵称" style="flex:1;">
+                <button class="btn btn-outline btn-sm" onclick="randomName()">🎲</button>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:12px;">
+                <button class="btn" onclick="showCreateRoom()">创建房间</button>
+                <button class="btn btn-outline" onclick="showJoinRoom()">加入房间</button>
+                <button class="btn btn-outline" onclick="startSolo()" style="border-color:#f59e0b;color:#b45309;">🤖 单人练习</button>
+                <button class="btn btn-outline" onclick="showTutorial()" style="border-color:#3b82f6;color:#3b82f6;">📖 游戏教程</button>
+            </div>
+            <div id="networkStatus" class="text-xs mt-3" style="color:#9ca3af;"></div>
+        </div>
+    </div>
+
+    <div id="createRoomModal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <h2>创建房间</h2>
+            <div class="mb-3"><label>房间人数上限</label>
+                <div class="slider-container"><input type="range" id="maxPlayersSlider" min="2" max="8" value="4"><span id="maxPlayersValue">4</span></div>
+            </div>
+            <div class="mb-3"><label>回合时间（秒）</label>
+                <div class="slider-container"><input type="range" id="turnTimeSlider" min="30" max="90" value="60"><span id="turnTimeValue">60</span></div>
+            </div>
+            <div class="mb-3"><label>曲目名称（逗号分隔，可选）</label>
+                <input type="text" id="chartNamesInput" class="input-field" placeholder="如：暗潮,风暴,月光">
+            </div>
+            <div class="flex justify-end gap-2">
+                <button class="btn btn-outline" onclick="closeModal('createRoomModal')">取消</button>
+                <button class="btn" onclick="confirmCreateRoom()">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="joinRoomModal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <h2>加入房间</h2>
+            <div class="mb-3"><label>房间号</label>
+                <input type="text" id="joinRoomIdInput" class="input-field" maxlength="20" placeholder="输入房间号" style="text-transform:uppercase;">
+            </div>
+            <div class="flex justify-end gap-2">
+                <button class="btn btn-outline" onclick="closeModal('joinRoomModal')">取消</button>
+                <button class="btn" onclick="confirmJoinRoom()">加入</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="waitingRoomModal" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width:500px;">
+            <h2>房间等待</h2>
+            <div class="text-sm mb-2">房间号：<span id="waitingRoomId" style="font-weight:700;color:#3b82f6;"></span></div>
+            <div id="waitingPlayerList" class="mb-3" style="max-height:200px;overflow-y:auto;"></div>
+            <div id="waitingSettings" class="text-xs mb-3" style="color:#9ca3af;"></div>
+            <div class="flex justify-between items-center">
+                <button class="btn btn-outline" id="readyBtn" onclick="toggleReady()">准备</button>
+                <div class="flex gap-2">
+                    <button class="btn btn-outline" onclick="leaveRoom()">离开</button>
+                    <button class="btn hidden" id="startGameBtn" onclick="hostStartGame()">开始游戏</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="gameBoard" class="game-container hidden">
+        <div class="top-bar">
+            <div style="font-weight:700;">ChartBooker <span id="roomLabel" class="text-sm" style="color:#9ca3af;"></span></div>
+            <div class="turn-indicator">🎯 <span id="currentPlayerLabel">等待</span></div>
+            <div class="timer-display" id="timerDisplay"></div>
+        </div>
+        <div class="status-msg" id="statusMsg">等待其他玩家...</div>
+        <div class="chart-area" id="chartArea"></div>
+        <div id="otherPlayers"></div>
+        <div class="hand-area" id="playerHand"></div>
+        <div class="draw-pile" onclick="drawCard()">
+            <div class="card-back">抽牌</div>
+            <div class="text-xs" style="color:#9ca3af;">点击抽牌</div>
+        </div>
+        <div class="discard-pile" id="discardPile"></div>
+        <div id="pointerArrow" class="hidden"></div>
+    </div>
+
+    <div id="winModal" class="modal-overlay hidden">
+        <div class="modal-content text-center">
+            <div id="winText" style="font-size:28px;font-weight:700;margin-bottom:16px;"></div>
+            <button class="btn" onclick="location.reload()">再来一局</button>
+        </div>
+    </div>
+
+    <div id="tutorialModal" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width:500px;">
+            <h2>📖 玩法说明</h2>
+            <div style="display:flex;flex-direction:column;gap:8px;font-size:14px;color:#374151;">
+                <p>🎯 <b>目标</b>：每回合完成至少一首曲目，淘汰其他玩家，成为最后冠军。</p>
+                <p>🃏 <b>基础牌</b>：键🎹、音🎵、效✨、线📏（各1-3点）。</p>
+                <p>⚔️ <b>技能牌</b>：<br>退📉：退回一个已填充需求<br>爆💥：炸毁曲目2轮<br>赐🎁：指定玩家给你一张基础牌<br>锁🔒：冻结一名玩家下回合<br>炫🌟：所有玩家抽一张牌</p>
+                <p>🎵 <b>曲目</b>：显示需求类型和总点数目标。出牌后点数<b>不能超过目标</b>（如3/5时不能出3，因为6>5；可出1→4/5或2→5/5完成）。</p>
+                <p>⏳ <b>行动</b>：轮到你时出牌或抽牌，限时内操作。</p>
+                <p>✅ <b>晋级</b>：完成曲目者晋级；未完成者淘汰。</p>
+            </div>
+            <div class="flex justify-end mt-4"><button class="btn" onclick="closeModal('tutorialModal')">关闭</button></div>
+        </div>
+    </div>
+
+    <div id="diceModal" class="modal-overlay hidden">
+        <div class="modal-content text-center" style="max-width:400px;">
+            <h2>🎲 掷骰子决定先手</h2>
+            <div id="diceResults" style="display:flex;gap:20px;justify-content:center;margin:20px 0;flex-wrap:wrap;"></div>
+            <div id="diceInfo" class="text-sm mb-4" style="color:#6b7280;"></div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== 常量 ====================
+        const BASIC_DEFS = {
+            key: { name: '键', icon: '🎹' },
+            tone: { name: '音', icon: '🎵' },
+            effect: { name: '效', icon: '✨' },
+            line: { name: '线', icon: '📏' }
+        };
+        const SKILL_DEFS = {
+            retreat: { name: '退', icon: '📉' },
+            explode: { name: '爆', icon: '💥' },
+            gift: { name: '赐', icon: '🎁' },
+            lock: { name: '锁', icon: '🔒' },
+            shine: { name: '炫', icon: '🌟' }
+        };
+        const SKILL_KEYS = Object.keys(SKILL_DEFS);
+        const AI_NAMES = ['小蓝','小绿','小红','小白','小黑','小灰','小紫','小橙','小粉','小棕'];
+
+        // ==================== 全局状态 ====================
+        let isHost = false;
+        let playerId = null;
+        let playerName = '玩家';
+        let playerAvatar = '';
+        let playersList = [];
+        let maxPlayers = 4;
+        let turnTimeLimit = 60;
+        let chartNames = [];
+        let roomId = '';
+        let gameState = null;
+        let myHand = [];
+        let charts = [];
+        let currentTurnId = null;
+        let selectedChartId = null;
+        let isReady = false;
+        let timerInterval = null;
+        let aiTimeout = null;
+        let diceResults = {};
+        let peer = null;
+        let hostConn = null;
+        let clientConns = new Map();
+        let networkMode = 'solo';
+        let clientIdToPeerIdMap = {};
+
+        // ==================== 工具函数 ====================
+        function shuffle(arr) {
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
+            return arr;
+        }
+        function showModal(id) { document.getElementById(id).classList.remove('hidden'); }
+        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+        function msg(title, text, cb) {
+            const m = document.createElement('div');
+            m.className = 'modal-overlay';
+            m.style.zIndex = '600';
+            m.innerHTML = `<div class="modal-content"><h2>${title}</h2><p style="margin-bottom:16px;color:#4b5563;">${text}</p><div class="flex justify-end"><button class="btn" id="okBtn">确定</button></div></div>`;
+            document.body.appendChild(m);
+            document.getElementById('okBtn').onclick = () => { m.remove(); if (cb) cb(); };
+        }
+
+        // ==================== 存储 ====================
+        function loadProfile() {
+            try { return JSON.parse(localStorage.getItem('cb_profile')) || { name: '', avatar: '' }; } catch (e) { return { name: '', avatar: '' }; }
+        }
+        function saveProfile(name, avatar) {
+            try { localStorage.setItem('cb_profile', JSON.stringify({ name, avatar })); } catch (e) {}
+        }
+        function randomName() {
+            const cn = '王李张刘陈杨赵黄周吴徐孙马朱胡郭何高林罗郑梁谢宋唐许韩冯邓曹彭曾萧田董潘袁蔡蒋余于杜叶程苏魏吕丁任沈姚卢姜崔钟谭陆汪范金石廖贾夏韦付方白邹孟熊秦邱江尹薛闫段雷侯龙史陶黎贺顾毛郝龚邵万钱严覃武戴莫孔向汤';
+            const en = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+            const useCN = Math.random() < 0.5;
+            let name = '';
+            if (useCN) { const len = 2 + Math.floor(Math.random() * 2); for (let i = 0; i < len; i++) name += cn[Math.floor(Math.random() * cn.length)]; }
+            else { const len = 3 + Math.floor(Math.random() * 5); for (let i = 0; i < len; i++) name += en[Math.floor(Math.random() * en.length)]; }
+            document.getElementById('playerNameInput').value = name;
+            playerName = name;
+            saveProfile(name, playerAvatar);
+        }
+
+        // ==================== 网络 ====================
+        function initNetwork(mode, roomIdParam, callbacks) {
+            networkMode = mode;
+            if (mode === 'solo') { if (callbacks.onReady) callbacks.onReady(); return; }
+            peer = new Peer(mode === 'host' ? ('chartbooker-' + roomIdParam) : ('chartbooker-client-' + Date.now()), { debug: 0 });
+            peer.on('open', (id) => {
+                if (mode === 'host') {
+                    peer.on('connection', (conn) => {
+                        if (clientConns.size >= maxPlayers - 1) { conn.close(); return; }
+                        conn.on('open', () => {
+                            clientConns.set(conn.peer, conn);
+                            if (callbacks.onClientJoin) callbacks.onClientJoin(conn.peer);
+                        });
+                        conn.on('data', (data) => { if (callbacks.onMessage) callbacks.onMessage(data, conn.peer); });
+                        conn.on('close', () => {
+                            clientConns.delete(conn.peer);
+                            if (callbacks.onClientLeave) callbacks.onClientLeave(conn.peer);
+                        });
+                    });
+                    if (callbacks.onReady) callbacks.onReady(id);
+                } else {
+                    hostConn = peer.connect('chartbooker-' + roomIdParam, { reliable: true });
+                    hostConn.on('open', () => {
+                        if (callbacks.onReady) callbacks.onReady(id);
+                        hostConn.on('data', (data) => { if (callbacks.onMessage) callbacks.onMessage(data, 'host'); });
+                        hostConn.on('close', () => { if (callbacks.onDisconnect) callbacks.onDisconnect(); });
+                    });
+                    hostConn.on('error', (err) => { if (callbacks.onError) callbacks.onError(err); });
+                }
+            });
+            peer.on('error', (err) => { if (callbacks.onError) callbacks.onError(err); });
+        }
+        function sendToHost(d) { if (hostConn && hostConn.open) hostConn.send(d); }
+        function sendToClient(cid, d) {
+            const pid = clientIdToPeerIdMap[cid] || cid;
+            const conn = clientConns.get(pid);
+            if (conn && conn.open) conn.send(d);
+        }
+        function broadcastToClients(d) { clientConns.forEach(c => { if (c.open) c.send(d); }); }
+        function destroyNetwork() {
+            try {
+                if (hostConn) hostConn.close();
+                clientConns.forEach(c => c.close());
+                if (peer) peer.destroy();
+            } catch (e) {}
+            hostConn = null; clientConns = new Map(); peer = null; networkMode = 'solo';
+        }
+
+        // ==================== 游戏逻辑 ====================
+        function createDeck() {
+            let deck = [];
+            Object.keys(BASIC_DEFS).forEach(type => {
+                for (let val = 1; val <= 3; val++) {
+                    for (let i = 0; i < 3; i++) deck.push({ type: 'basic', basicType: type, value: val });
+                }
+            });
+            SKILL_KEYS.forEach(skill => {
+                for (let i = 0; i < 2; i++) deck.push({ type: 'skill', skillType: skill });
+            });
+            return shuffle(deck);
+        }
+        function generateChart(count) {
+            let charts = [];
+            for (let i = 0; i < count; i++) {
+                const reqCount = 2 + Math.floor(Math.random() * 2);
+                const requirements = [];
+                const usedTypes = new Set();
+                while (requirements.length < reqCount) {
+                    const types = Object.keys(BASIC_DEFS);
+                    const type = types[Math.floor(Math.random() * types.length)];
+                    if (usedTypes.has(type)) continue;
+                    usedTypes.add(type);
+                    requirements.push({ basicType: type, requiredTotal: 3 + Math.floor(Math.random() * 4), currentTotal: 0, filled: false });
+                }
+                charts.push({ id: i, name: chartNames[i] || `曲目 ${i + 1}`, requirements, completed: false, completedBy: null, damaged: false, damageTurnsLeft: 0 });
+            }
+            return charts;
+        }
+        function isPlayable(req, cardValue) {
+            if (req.filled) return false;
+            return cardValue <= (req.requiredTotal - req.currentTotal);
+        }
+        function advanceTurn() {
+            if (!gameState) return;
+            const alive = gameState.alivePlayers.filter(id => !gameState.eliminated.includes(id));
+            if (alive.length === 0) return;
+            const idx = alive.indexOf(currentTurnId);
+            currentTurnId = alive[(idx + 1) % alive.length];
+            gameState.currentTurn = currentTurnId;
+            gameState.charts.forEach(chart => {
+                if (chart.damaged) {
+                    chart.damageTurnsLeft--;
+                    if (chart.damageTurnsLeft <= 0) chart.damaged = false;
+                }
+            });
+            gameState.turnCount++;
+            gameState.turnTimeRemaining = gameState.turnTimeLimit;
+        }
+        function checkRoundEnd() {
+            const uncompleted = gameState.charts.filter(c => !c.completed);
+            const aliveNotWinner = gameState.alivePlayers.filter(id => !gameState.winners.includes(id) && !gameState.eliminated.includes(id));
+            if (uncompleted.length === 0 || aliveNotWinner.length === 0) {
+                gameState.status = 'round_end';
+                setTimeout(() => { if (isHost || gameState.isDebug) startNextRound(); }, 1000);
+            }
+            syncState();
+        }
+        function syncState() {
+            if (networkMode === 'host') broadcastToClients({ type: 'state_update', gameState });
+            updateGameStateForClient(gameState);
+            startTurnTimer();
+            if (gameState.isDebug) startAILoop();
+        }
+        function startNextRound() {
+            const remaining = gameState.alivePlayers.filter(id => !gameState.winners.includes(id) && !gameState.eliminated.includes(id));
+            gameState.eliminated = [...gameState.eliminated, ...remaining];
+            gameState.alivePlayers = gameState.alivePlayers.filter(id => !gameState.eliminated.includes(id));
+            if (gameState.alivePlayers.length <= 1) {
+                gameState.status = 'game_over';
+                const winner = gameState.alivePlayers[0] || gameState.winners[gameState.winners.length - 1];
+                showWin(winner);
+                return;
+            }
+            gameState.round++;
+            gameState.winners = [];
+            gameState.charts = generateChart(gameState.alivePlayers.length - 1);
+            gameState.currentTurn = gameState.turnOrder[0] || gameState.alivePlayers[0];
+            currentTurnId = gameState.currentTurn;
+            gameState.alivePlayers.forEach(id => {
+                while (gameState.hands[id].length < 7) {
+                    if (gameState.deck.length === 0) gameState.deck = createDeck();
+                    gameState.hands[id].push(gameState.deck.pop());
+                }
+            });
+            gameState.status = 'playing';
+            gameState.turnTimeRemaining = gameState.turnTimeLimit;
+            syncState();
+        }
+        function showWin(winnerId) {
+            const winner = playersList.find(p => p.id === winnerId);
+            document.getElementById('winText').textContent = winner ? `${winner.name} 获胜！🏆` : '游戏结束';
+            showModal('winModal');
+        }
+
+        // ==================== 操作处理 ====================
+        function handlePlayBasic(pid, payload) {
+            if (!gameState || gameState.status !== 'playing' || pid !== currentTurnId) return;
+            const hand = gameState.hands[pid];
+            if (!hand || payload.cardIndex < 0 || payload.cardIndex >= hand.length) return;
+            const card = hand[payload.cardIndex];
+            if (card.type !== 'basic') return;
+            const chart = gameState.charts.find(c => c.id === payload.chartId && !c.completed && !c.damaged);
+            if (!chart) return;
+            const req = chart.requirements[payload.reqIndex];
+            if (!req || req.filled || req.basicType !== card.basicType || !isPlayable(req, card.value)) return;
+            req.currentTotal += card.value;
+            hand.splice(payload.cardIndex, 1);
+            gameState.discardPile.push({ ...card, playerId: pid });
+            if (req.currentTotal >= req.requiredTotal) req.filled = true;
+            if (chart.requirements.every(r => r.filled)) {
+                chart.completed = true;
+                chart.completedBy = pid;
+                if (!gameState.winners.includes(pid)) gameState.winners.push(pid);
+                checkRoundEnd();
+            }
+            advanceTurn();
+            syncState();
+        }
+        function handlePlayRetreat(pid, payload) {
+            if (!gameState || gameState.status !== 'playing' || pid !== currentTurnId) return;
+            const hand = gameState.hands[pid];
+            if (!hand || payload.cardIndex < 0 || payload.cardIndex >= hand.length) return;
+            const card = hand[payload.cardIndex];
+            if (card.type !== 'skill' || card.skillType !== 'retreat') return;
+            const chart = gameState.charts.find(c => c.id === payload.chartId && !c.completed && !c.damaged);
+            if (!chart) return;
+            const req = chart.requirements[payload.reqIndex];
+            if (!req || !req.filled) return;
+            req.currentTotal = 0;
+            req.filled = false;
+            hand.splice(payload.cardIndex, 1);
+            gameState.discardPile.push({ ...card, playerId: pid });
+            if (!gameState.wastePools[pid]) gameState.wastePools[pid] = [];
+            gameState.wastePools[pid].push({ type: 'basic', basicType: req.basicType, value: 1 });
+            advanceTurn();
+            syncState();
+        }
+        function handlePlayExplode(pid, payload) {
+            if (!gameState || gameState.status !== 'playing' || pid !== currentTurnId) return;
+            const hand = gameState.hands[pid];
+            if (!hand || payload.cardIndex < 0 || payload.cardIndex >= hand.length) return;
+            const card = hand[payload.cardIndex];
+            if (card.type !== 'skill' || card.skillType !== 'explode') return;
+            const chart = gameState.charts.find(c => c.id === payload.chartId && !c.completed && !c.damaged);
+            if (!chart) return;
+            chart.damaged = true;
+            chart.damageTurnsLeft = 2;
+            hand.splice(payload.cardIndex, 1);
+            gameState.discardPile.push({ ...card, playerId: pid });
+            advanceTurn();
+            syncState();
+        }
+        function handlePlayGiftLock(pid, payload) {
+            if (!gameState || gameState.status !== 'playing' || pid !== currentTurnId) return;
+            const hand = gameState.hands[pid];
+            if (!hand || payload.cardIndex < 0 || payload.cardIndex >= hand.length) return;
+            const card = hand[payload.cardIndex];
+            if (card.type !== 'skill') return;
+            const target = gameState.players.find(p => p.id === payload.targetPlayerId && p.id !== pid);
+            if (!target) return;
+            if (card.skillType === 'gift') {
+                const targetHand = gameState.hands[target.id];
+                const basicIdx = targetHand.findIndex(c => c.type === 'basic');
+                if (basicIdx === -1) return;
+                hand.push(targetHand.splice(basicIdx, 1)[0]);
+                gameState.discardPile.push({ ...card, playerId: pid });
+            } else if (card.skillType === 'lock') {
+                gameState.frozenPlayers[target.id] = 1;
+                gameState.discardPile.push({ ...card, playerId: pid });
+            }
+            hand.splice(payload.cardIndex, 1);
+            advanceTurn();
+            syncState();
+        }
+        function handlePlayShine(pid, payload) {
+            if (!gameState || gameState.status !== 'playing' || pid !== currentTurnId) return;
+            const hand = gameState.hands[pid];
+            if (!hand || payload.cardIndex < 0 || payload.cardIndex >= hand.length) return;
+            const card = hand[payload.cardIndex];
+            if (card.type !== 'skill' || card.skillType !== 'shine') return;
+            gameState.alivePlayers.forEach(id => {
+                if (gameState.deck.length === 0) gameState.deck = createDeck();
+                gameState.hands[id].push(gameState.deck.pop());
+            });
+            hand.splice(payload.cardIndex, 1);
+            gameState.discardPile.push({ ...card, playerId: pid });
+            advanceTurn();
+            syncState();
+        }
+        function handleDrawCard(pid) {
+            if (!gameState || gameState.status !== 'playing' || pid !== currentTurnId) return;
+            if (gameState.deck.length === 0) gameState.deck = createDeck();
+            gameState.hands[pid].push(gameState.deck.pop());
+            advanceTurn();
+            syncState();
+        }
+
+        // ==================== AI ====================
+        function startAILoop() {
+            if (!gameState || !gameState.isDebug || gameState.status !== 'playing') return;
+            if (currentTurnId === playerId) return;
+            const cp = gameState.players.find(p => p.id === currentTurnId);
+            if (!cp || !cp.isAI) return;
+            clearTimeout(aiTimeout);
+            aiTimeout = setTimeout(() => {
+                if (gameState.status !== 'playing' || currentTurnId !== cp.id) return;
+                executeAI(cp.id);
+            }, 3000 + Math.random() * 10000);
+        }
+        function executeAI(aiId) {
+            const hand = gameState.hands[aiId];
+            if (!hand) return;
+            if (gameState.frozenPlayers[aiId] > 0) {
+                gameState.frozenPlayers[aiId] = 0;
+                advanceTurn();
+                syncState();
+                return;
+            }
+            const availableCharts = gameState.charts.filter(c => !c.completed && !c.damaged);
+            let best = null;
+            for (let i = 0; i < hand.length; i++) {
+                const card = hand[i];
+                if (card.type !== 'basic') continue;
+                for (const chart of availableCharts) {
+                    const req = chart.requirements.find(r => !r.filled && r.basicType === card.basicType && isPlayable(r, card.value));
+                    if (req) {
+                        if (!best || req.requiredTotal - req.currentTotal > best.priority) {
+                            best = { cardIndex: i, chartId: chart.id, reqIndex: chart.requirements.indexOf(req), priority: req.requiredTotal - req.currentTotal };
+                        }
+                        break;
+                    }
+                }
+            }
+            if (best) {
+                handlePlayBasic(aiId, best);
+                return;
+            }
+            const si = hand.findIndex(c => c.type === 'skill');
+            if (si !== -1) {
+                const card = hand[si];
+                if (card.skillType === 'retreat') {
+                    const chart = availableCharts.find(c => c.requirements.some(r => r.filled));
+                    if (chart) { handlePlayRetreat(aiId, { cardIndex: si, chartId: chart.id, reqIndex: chart.requirements.findIndex(r => r.filled) }); return; }
+                } else if (card.skillType === 'explode') {
+                    if (availableCharts.length > 0) { handlePlayExplode(aiId, { cardIndex: si, chartId: availableCharts[0].id }); return; }
+                } else if (card.skillType === 'shine') { handlePlayShine(aiId, { cardIndex: si }); return; }
+                else if (card.skillType === 'gift' || card.skillType === 'lock') {
+                    const targets = gameState.alivePlayers.filter(id => id !== aiId);
+                    if (targets.length > 0) { handlePlayGiftLock(aiId, { cardIndex: si, skillType: card.skillType, targetPlayerId: targets[Math.floor(Math.random() * targets.length)] }); return; }
+                }
+            }
+            handleDrawCard(aiId);
+        }
+
+        // ==================== UI 渲染 ====================
+        function updateGameStateForClient(state) {
+            gameState = state;
+            if (!gameState) return;
+            const me = gameState.players.find(p => p.id === playerId);
+            myHand = me ? gameState.hands[playerId] || [] : [];
+            charts = gameState.charts;
+            currentTurnId = gameState.currentTurn;
+            playersList = gameState.players;
+            selectedChartId = null;
+            renderCharts();
+            renderPlayers();
+            renderHand();
+            renderDiscardPile();
+            updateTurnLabel();
+            updateStatus();
+            updateTimer();
+            updatePointerArrow();
+        }
+        function renderCharts() {
+            const container = document.getElementById('chartArea');
+            container.innerHTML = '';
+            if (!charts) return;
+            charts.forEach(chart => {
+                const div = document.createElement('div');
+                div.className = `chart-card ${chart.completed ? 'completed' : ''} ${chart.damaged ? 'damaged' : ''} ${selectedChartId === chart.id ? 'highlight' : ''}`;
+                let reqHtml = '';
+                chart.requirements.forEach(req => {
+                    const def = BASIC_DEFS[req.basicType];
+                    const pct = Math.min(100, (req.currentTotal / req.requiredTotal) * 100);
+                    reqHtml += `<div style="display:inline-block;margin:3px;text-align:center;">
+                        <div class="req-slot ${req.filled ? 'filled' : ''}">
+                            <span style="font-size:16px;">${def.icon}</span>
+                            <span style="font-size:10px;font-weight:700;">${req.currentTotal}/${req.requiredTotal}</span>
+                        </div>
+                        <div style="width:100%;height:4px;background:#e5e7eb;border-radius:2px;margin-top:2px;">
+                            <div style="width:${pct}%;height:100%;background:${req.filled ? '#22c55e' : '#3b82f6'};border-radius:2px;transition:width .2s;"></div>
+                        </div>
+                    </div>`;
+                });
+                let statusHtml = '';
+                if (chart.completed) {
+                    const owner = gameState.players.find(p => p.id === chart.completedBy);
+                    statusHtml = `<div class="text-xs" style="color:#22c55e;font-weight:700;">✅ 完成者：${owner ? owner.name : '未知'}</div>`;
+                } else if (chart.damaged) {
+                    statusHtml = `<div class="text-xs" style="color:#ef4444;font-weight:700;">🔗 损坏 剩余${chart.damageTurnsLeft}轮</div>`;
+                }
+                div.innerHTML = `<div style="font-weight:700;margin-bottom:6px;">${chart.name}</div>${reqHtml}${statusHtml}`;
+                if (!chart.completed && !chart.damaged) {
+                    div.onclick = () => {
+                        if (currentTurnId === playerId && gameState.status === 'playing') {
+                            selectedChartId = chart.id;
+                            renderCharts();
+                            renderHand();
+                            updateStatus();
+                        }
+                    };
+                }
+                container.appendChild(div);
+            });
+        }
+        function renderPlayers() {
+            const container = document.getElementById('otherPlayers');
+            container.innerHTML = '';
+            if (!playersList) return;
+            const others = playersList.filter(p => p.id !== playerId);
+            const positions = [
+                'top:50px;left:50%;transform:translateX(-50%);',
+                'top:50%;left:20px;transform:translateY(-50%);',
+                'top:50%;right:20px;left:auto;transform:translateY(-50%);',
+                'top:100px;left:80px;',
+                'top:100px;right:80px;left:auto;',
+                'bottom:150px;left:80px;',
+                'bottom:150px;right:80px;left:80px;',
+                'bottom:50px;left:50%;transform:translateX(-50%);'
+            ];
+            let hasActive = false;
+            others.forEach((p, idx) => {
+                const isActive = p.id === currentTurnId;
+                if (isActive) hasActive = true;
+                const handCount = gameState.hands[p.id]?.length || 0;
+                const isFrozen = gameState.frozenPlayers[p.id] > 0;
+                const isEliminated = gameState.eliminated.includes(p.id);
+                const div = document.createElement('div');
+                div.className = `player-area ${isActive ? 'active-player' : ''} ${isEliminated ? 'eliminated' : ''}`;
+                if (window.innerWidth > 768) div.style.cssText = positions[idx % positions.length];
+                const avatarHtml = p.avatar ? `<img src="${p.avatar}">` : p.name[0];
+                div.innerHTML = `
+                    <div class="player-info">
+                        <div class="player-avatar" style="background:${p.isHost ? '#3b82f6' : (p.isAI ? '#f59e0b' : '#9ca3af')};">${avatarHtml}</div>
+                        <span class="${isActive ? 'active-text' : ''}">${p.name} (${handCount}张)${isFrozen ? ' ❄️' : ''}</span>
+                    </div>
+                    ${isEliminated ? '' : `<div class="player-cards-back">${Array(Math.min(handCount, 5)).fill(0).map(() => '<div class="card-back-small"></div>').join('')}</div>`}
+                `;
+                container.appendChild(div);
+                if (isActive && !isEliminated && window.innerWidth > 768) {
+                    const arrow = document.getElementById('pointerArrow');
+                    arrow.classList.remove('hidden');
+                    const rect = div.getBoundingClientRect();
+                    const gr = document.getElementById('gameBoard').getBoundingClientRect();
+                    arrow.style.left = (rect.left - gr.left + rect.width / 2 - 12) + 'px';
+                    arrow.style.top = (rect.top - gr.top - 25) + 'px';
+                }
+            });
+            if (!hasActive && currentTurnId === playerId && !gameState.eliminated.includes(playerId)) {
+                const arrow = document.getElementById('pointerArrow');
+                arrow.classList.remove('hidden');
+                const hr = document.getElementById('playerHand').getBoundingClientRect();
+                const gr = document.getElementById('gameBoard').getBoundingClientRect();
+                arrow.style.left = (hr.left - gr.left + hr.width / 2 - 12) + 'px';
+                arrow.style.top = (hr.top - gr.top - 25) + 'px';
+            }
+        }
+        function renderHand() {
+            const hand = document.getElementById('playerHand');
+            hand.innerHTML = '';
+            if (!myHand || gameState.eliminated.includes(playerId)) return;
+            myHand.forEach((card, index) => {
+                const el = createCardElement(card);
+                el.style.marginLeft = index === 0 ? '0' : '-12px';
+                el.onclick = () => onCardClick(index);
+                hand.appendChild(el);
+            });
+            updateCardAvailability();
+        }
+        function createCardElement(card) {
+            const div = document.createElement('div');
+            if (card.type === 'basic') {
+                const def = BASIC_DEFS[card.basicType];
+                div.className = `game-card type-${card.basicType === 'tone' ? 'tone' : card.basicType}`;
+                div.innerHTML = `<div class="icon">${def.icon}</div><div class="name">${def.name}</div><div class="val">${card.value}</div>`;
+            } else {
+                const def = SKILL_DEFS[card.skillType];
+                div.className = 'game-card type-skill';
+                div.innerHTML = `<div class="icon">${def.icon}</div><div class="name">${def.name}</div><div class="val" style="font-size:14px;">${def.name}</div>`;
+            }
+            return div;
+        }
+        function updateCardAvailability() {
+            if (currentTurnId !== playerId || !gameState || gameState.status !== 'playing') {
+                document.querySelectorAll('#playerHand .game-card').forEach(el => el.classList.add('unavailable'));
+                return;
+            }
+            const cards = document.querySelectorAll('#playerHand .game-card');
+            myHand.forEach((card, idx) => {
+                const el = cards[idx];
+                if (!el) return;
+                if (card.type === 'basic') {
+                    const chart = selectedChartId !== null ? gameState.charts.find(c => c.id === selectedChartId) : null;
+                    const canUse = chart && !chart.completed && !chart.damaged && chart.requirements.some(r => !r.filled && r.basicType === card.basicType && isPlayable(r, card.value));
+                    el.classList.toggle('available', canUse);
+                    el.classList.toggle('unavailable', !canUse);
+                } else {
+                    let canUse = true;
+                    if (card.skillType === 'retreat') {
+                        const chart = selectedChartId !== null ? gameState.charts.find(c => c.id === selectedChartId) : null;
+                        canUse = chart && !chart.completed && chart.requirements.some(r => r.filled);
+                    } else if (card.skillType === 'explode') {
+                        const chart = selectedChartId !== null ? gameState.charts.find(c => c.id === selectedChartId) : null;
+                        canUse = chart && !chart.completed && !chart.damaged;
+                    } else if (card.skillType === 'gift' || card.skillType === 'lock') {
+                        canUse = playersList.some(p => p.id !== playerId && gameState.alivePlayers.includes(p.id));
+                    }
+                    el.classList.toggle('available', canUse);
+                    el.classList.toggle('unavailable', !canUse);
+                }
+            });
+        }
+        function renderDiscardPile() {
+            const container = document.getElementById('discardPile');
+            container.innerHTML = '';
+            if (!gameState || !gameState.discardPile) return;
+            gameState.discardPile.slice(-3).forEach(card => {
+                const div = document.createElement('div');
+                div.className = 'discard-card';
+                div.style.transform = `rotate(${(Math.random() * 8 - 4).toFixed(1)}deg)`;
+                if (card.type === 'basic') {
+                    div.innerHTML = `<div>${BASIC_DEFS[card.basicType].icon}</div><div>${card.value}</div>`;
+                } else {
+                    div.innerHTML = `<div>${SKILL_DEFS[card.skillType].icon}</div><div>${SKILL_DEFS[card.skillType].name}</div>`;
+                }
+                if (card.playerId) {
+                    const p = gameState.players.find(p => p.id === card.playerId);
+                    const label = document.createElement('div');
+                    label.style.cssText = 'font-size:7px;color:#6b7280;position:absolute;bottom:-12px;';
+                    label.textContent = p ? p.name : '?';
+                    div.appendChild(label);
+                }
+                container.appendChild(div);
+            });
+        }
+        function updateTurnLabel() {
+            if (!gameState) return;
+            const current = gameState.players.find(p => p.id === currentTurnId);
+            document.getElementById('currentPlayerLabel').textContent = current ? current.name : '等待';
+            document.getElementById('currentPlayerLabel').className = currentTurnId === playerId ? 'active-text' : '';
+            document.getElementById('roomLabel').textContent = `房间 ${gameState.roomId} ${isHost ? '(房主)' : ''}`;
+        }
+        function updateStatus() {
+            const el = document.getElementById('statusMsg');
+            if (!gameState) return;
+            if (gameState.status === 'playing') {
+                el.textContent = currentTurnId === playerId ? '轮到你！选择曲目后出牌' : `等待 ${gameState.players.find(p => p.id === currentTurnId)?.name || '下一位玩家'} 行动...`;
+            } else if (gameState.status === 'round_end') el.textContent = '回合结束...';
+            else if (gameState.status === 'game_over') el.textContent = '游戏结束！';
+        }
+        function updateTimer() {
+            const el = document.getElementById('timerDisplay');
+            if (gameState && gameState.status === 'playing' && currentTurnId === playerId) {
+                el.textContent = `⏳ ${Math.ceil(gameState.turnTimeRemaining)}s`;
+                el.style.color = gameState.turnTimeRemaining < 10 ? '#ef4444' : '#6b7280';
+            } else el.textContent = '';
+        }
+        function updatePointerArrow() {
+            const arrow = document.getElementById('pointerArrow');
+            if (gameState && gameState.status === 'playing' && currentTurnId === playerId) {
+                arrow.classList.remove('hidden');
+                const hr = document.getElementById('playerHand').getBoundingClientRect();
+                const gr = document.getElementById('gameBoard').getBoundingClientRect();
+                arrow.style.left = (hr.left - gr.left + hr.width / 2 - 12) + 'px';
+                arrow.style.top = (hr.top - gr.top - 25) + 'px';
+            } else arrow.classList.add('hidden');
+        }
+        function startTurnTimer() {
+            clearInterval(timerInterval);
+            if (!gameState || gameState.status !== 'playing') return;
+            gameState.turnTimeRemaining = gameState.turnTimeRemaining || gameState.turnTimeLimit;
+            updateTimer();
+            if (currentTurnId === playerId) {
+                timerInterval = setInterval(() => {
+                    if (gameState.status !== 'playing' || currentTurnId !== playerId) { clearInterval(timerInterval); return; }
+                    gameState.turnTimeRemaining--;
+                    updateTimer();
+                    if (gameState.turnTimeRemaining <= 0) { clearInterval(timerInterval); drawCard(true); }
+                }, 1000);
+            }
+        }
+
+        // ==================== 玩家操作 ====================
+        function onCardClick(index) {
+            if (!gameState || gameState.status !== 'playing' || currentTurnId !== playerId) {
+                msg('提示', '还没轮到你');
+                return;
+            }
+            const card = myHand[index];
+            if (!card) return;
+            if (gameState.frozenPlayers[playerId] > 0) {
+                msg('❄️ 冻结', '你被冻结，本回合跳过！');
+                gameState.frozenPlayers[playerId] = 0;
+                advanceTurn();
+                syncState();
+                return;
+            }
+            if (card.type === 'basic') {
+                if (selectedChartId === null) { msg('提示', '请先点击一个曲目'); return; }
+                const chart = gameState.charts.find(c => c.id === selectedChartId && !c.completed && !c.damaged);
+                if (!chart) { selectedChartId = null; renderCharts(); return; }
+                const req = chart.requirements.find(r => !r.filled && r.basicType === card.basicType);
+                if (!req) {
+                    shakeCard(index);
+                    msg('提示', '此牌类型不符合任何需求');
+                    return;
+                }
+                if (!isPlayable(req, card.value)) {
+                    shakeCard(index);
+                    msg('提示', `出牌后点数会超过目标(${req.requiredTotal})，当前${req.currentTotal}/${req.requiredTotal}`);
+                    return;
+                }
+                const action = { type: 'play_basic', cardIndex: index, chartId: selectedChartId, reqIndex: chart.requirements.indexOf(req) };
+                if (isHost) handlePlayBasic(playerId, action);
+                else if (networkMode === 'client') sendToHost({ ...action, playerId });
+                selectedChartId = null;
+            } else {
+                const cardType = card.skillType;
+                if (cardType === 'retreat') {
+                    if (selectedChartId === null) { msg('提示', '请先点击一个曲目'); return; }
+                    const chart = gameState.charts.find(c => c.id === selectedChartId && !c.completed && !c.damaged);
+                    if (!chart || !chart.requirements.some(r => r.filled)) { msg('提示', '该曲目无可退回需求'); return; }
+                    const action = { type: 'play_retreat', cardIndex: index, chartId: selectedChartId, reqIndex: chart.requirements.findIndex(r => r.filled) };
+                    if (isHost) handlePlayRetreat(playerId, action);
+                    else if (networkMode === 'client') sendToHost({ ...action, playerId });
+                    selectedChartId = null;
+                } else if (cardType === 'explode') {
+                    if (selectedChartId === null) { msg('提示', '请先点击一个曲目'); return; }
+                    const chart = gameState.charts.find(c => c.id === selectedChartId && !c.completed && !c.damaged);
+                    if (!chart) { msg('提示', '曲目不可用'); return; }
+                    const action = { type: 'play_explode', cardIndex: index, chartId: selectedChartId };
+                    if (isHost) handlePlayExplode(playerId, action);
+                    else if (networkMode === 'client') sendToHost({ ...action, playerId });
+                    selectedChartId = null;
+                } else if (cardType === 'gift' || cardType === 'lock') {
+                    showPlayerSelector(cardType, index);
+                    return;
+                } else if (cardType === 'shine') {
+                    const action = { type: 'play_shine', cardIndex: index };
+                    if (isHost) handlePlayShine(playerId, action);
+                    else if (networkMode === 'client') sendToHost({ ...action, playerId });
+                }
+            }
+        }
+        function shakeCard(index) {
+            const cards = document.querySelectorAll('#playerHand .game-card');
+            if (cards[index]) {
+                cards[index].classList.add('shake');
+                setTimeout(() => cards[index].classList.remove('shake'), 350);
+            }
+        }
+        function showPlayerSelector(skillType, cardIndex) {
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.style.zIndex = '500';
+            modal.innerHTML = `<div class="modal-content"><h2>选择目标玩家</h2><div id="targetList" style="display:flex;flex-direction:column;gap:8px;"></div><div class="flex justify-end mt-4"><button class="btn btn-outline" id="cancelTarget">取消</button></div></div>`;
+            document.body.appendChild(modal);
+            const listDiv = modal.querySelector('#targetList');
+            gameState.alivePlayers.forEach(pid => {
+                if (pid === playerId) return;
+                const p = gameState.players.find(p => p.id === pid);
+                const btn = document.createElement('button');
+                btn.className = 'btn btn-outline w-full justify-between';
+                btn.textContent = `${p.name} (${p.isAI ? 'AI' : '玩家'})`;
+                btn.onclick = () => {
+                    modal.remove();
+                    const action = { type: 'play_gift_lock', cardIndex, skillType, targetPlayerId: pid };
+                    if (isHost) handlePlayGiftLock(playerId, action);
+                    else if (networkMode === 'client') sendToHost({ ...action, playerId });
+                };
+                listDiv.appendChild(btn);
+            });
+            modal.querySelector('#cancelTarget').onclick = () => modal.remove();
+        }
+        function drawCard(auto = false) {
+            if (!gameState || gameState.status !== 'playing' || currentTurnId !== playerId) return;
+            if (!auto && gameState.frozenPlayers[playerId] > 0) {
+                msg('❄️ 冻结', '你被冻结，跳过回合');
+                gameState.frozenPlayers[playerId] = 0;
+                advanceTurn();
+                syncState();
+                return;
+            }
+            if (isHost) handleDrawCard(playerId);
+            else if (networkMode === 'client') sendToHost({ type: 'draw_card', playerId });
+        }
+
+        // ==================== 房间流程 ====================
+        function showCreateRoom() {
+            playerName = document.getElementById('playerNameInput').value.trim() || '玩家';
+            playerAvatar = document.getElementById('profileAvatar').src;
+            showModal('createRoomModal');
+        }
+        function confirmCreateRoom() {
+            maxPlayers = parseInt(document.getElementById('maxPlayersSlider').value);
+            turnTimeLimit = parseInt(document.getElementById('turnTimeSlider').value);
+            const namesInput = document.getElementById('chartNamesInput').value.trim();
+            chartNames = namesInput ? namesInput.split(',').map(s => s.trim()).filter(s => s) : [];
+            roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+            isHost = true;
+            playerId = 'host_' + roomId;
+            playersList = [{ id: playerId, name: playerName, avatar: playerAvatar, isHost: true, isAI: false, ready: true }];
+            isReady = true;
+            closeModal('createRoomModal');
+            showModal('waitingRoomModal');
+            updateWaitingUI();
+            initNetwork('host', roomId, {
+                onReady: () => { document.getElementById('networkStatus').textContent = '联机：主机就绪'; },
+                onMessage: handleHostMessage,
+                onClientLeave: (clientPeerId) => {
+                    const pid = Object.keys(clientIdToPeerIdMap).find(id => clientIdToPeerIdMap[id] === clientPeerId);
+                    if (pid) { delete clientIdToPeerIdMap[pid]; playersList = playersList.filter(p => p.id !== pid); }
+                    else playersList = playersList.filter(p => p.id !== clientPeerId);
+                    broadcastToClients({ type: 'room_update', playersList });
+                    updateWaitingUI();
+                }
+            });
+            document.getElementById('startGameBtn').classList.remove('hidden');
+            document.getElementById('readyBtn').classList.add('hidden');
+        }
+        function showJoinRoom() {
+            playerName = document.getElementById('playerNameInput').value.trim() || '玩家';
+            playerAvatar = document.getElementById('profileAvatar').src;
+            showModal('joinRoomModal');
+        }
+        function confirmJoinRoom() {
+            const code = document.getElementById('joinRoomIdInput').value.trim();
+            if (!code) { msg('提示', '请输入房间号'); return; }
+            playerId = 'player_' + Math.random().toString(36).substring(2, 10);
+            closeModal('joinRoomModal');
+            document.getElementById('readyBtn').classList.add('hidden');
+            showModal('waitingRoomModal');
+            document.getElementById('waitingRoomId').textContent = code;
+            document.getElementById('waitingPlayerList').innerHTML = '<div style="color:#9ca3af;">正在连接...</div>';
+            initNetwork('client', code, {
+                onReady: () => { sendToHost({ type: 'join_request', name: playerName, avatar: playerAvatar, playerId }); },
+                onMessage: handleClientMessage,
+                onError: () => { msg('连接失败', '无法连接到房间'); closeModal('waitingRoomModal'); },
+                onDisconnect: () => { msg('连接断开', '与房主的连接已断开'); closeModal('waitingRoomModal'); }
+            });
+        }
+        function handleHostMessage(data, fromPeerId) {
+            switch (data.type) {
+                case 'join_request':
+                    if (playersList.length >= maxPlayers) {
+                        sendToClient(fromPeerId, { type: 'join_denied', reason: '房间已满' });
+                        return;
+                    }
+                    const newPlayer = { id: data.playerId, name: data.name, avatar: data.avatar, isHost: false, isAI: false, ready: false };
+                    clientIdToPeerIdMap[newPlayer.id] = fromPeerId;
+                    playersList.push(newPlayer);
+                    sendToClient(fromPeerId, { type: 'join_approved', playersList, maxPlayers, turnTimeLimit, chartNames });
+                    broadcastToClients({ type: 'room_update', playersList });
+                    updateWaitingUI();
+                    break;
+                case 'ready_update':
+                    const p = playersList.find(p => p.id === data.playerId);
+                    if (p) p.ready = data.ready;
+                    broadcastToClients({ type: 'room_update', playersList });
+                    updateWaitingUI();
+                    break;
+                case 'leave_room':
+                    playersList = playersList.filter(p => p.id !== data.playerId);
+                    delete clientIdToPeerIdMap[data.playerId];
+                    broadcastToClients({ type: 'room_update', playersList });
+                    updateWaitingUI();
+                    break;
+                case 'play_basic': handlePlayBasic(data.playerId, data); break;
+                case 'play_retreat': handlePlayRetreat(data.playerId, data); break;
+                case 'play_explode': handlePlayExplode(data.playerId, data); break;
+                case 'play_gift_lock': handlePlayGiftLock(data.playerId, data); break;
+                case 'play_shine': handlePlayShine(data.playerId, data); break;
+                case 'draw_card': handleDrawCard(data.playerId); break;
+                case 'kick_player':
+                    const target = playersList.find(p => p.id === data.targetId);
+                    if (target) {
+                        playersList = playersList.filter(p => p.id !== data.targetId);
+                        sendToClient(data.targetId, { type: 'kicked' });
+                        delete clientIdToPeerIdMap[data.targetId];
+                        broadcastToClients({ type: 'room_update', playersList });
+                        updateWaitingUI();
+                    }
+                    break;
+            }
+        }
+        function handleClientMessage(data) {
+            switch (data.type) {
+                case 'join_approved':
+                    isHost = false;
+                    playersList = data.playersList;
+                    maxPlayers = data.maxPlayers;
+                    turnTimeLimit = data.turnTimeLimit;
+                    chartNames = data.chartNames || [];
+                    roomId = document.getElementById('joinRoomIdInput').value.trim();
+                    const me = playersList.find(p => p.id === playerId);
+                    if (me) isReady = me.ready;
+                    const readyBtn = document.getElementById('readyBtn');
+                    readyBtn.classList.remove('hidden');
+                    readyBtn.textContent = '准备';
+                    updateWaitingUI();
+                    break;
+                case 'join_denied':
+                    msg('加入失败', data.reason);
+                    closeModal('waitingRoomModal');
+                    break;
+                case 'room_update':
+                    playersList = data.playersList;
+                    const myInfo = playersList.find(p => p.id === playerId);
+                    if (myInfo) isReady = myInfo.ready;
+                    updateWaitingUI();
+                    break;
+                case 'game_start':
+                    gameState = data.gameState;
+                    enterGameScreen();
+                    break;
+                case 'state_update':
+                    updateGameStateForClient(data.gameState);
+                    break;
+                case 'game_over':
+                    showWin(data.winner);
+                    break;
+                case 'kicked':
+                    msg('被踢出', '你已被房主移出房间');
+                    closeModal('waitingRoomModal');
+                    destroyNetwork();
+                    break;
+            }
+        }
+        function updateWaitingUI() {
+            document.getElementById('waitingRoomId').textContent = roomId;
+            const listDiv = document.getElementById('waitingPlayerList');
+            listDiv.innerHTML = '';
+            playersList.forEach(p => {
+                const item = document.createElement('div');
+                item.className = 'player-list-item';
+                const avatarHtml = p.avatar ? `<img src="${p.avatar}" style="width:24px;height:24px;border-radius:50%;object-fit:cover;">` : p.name[0];
+                item.innerHTML = `
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <div class="player-avatar" style="background:${p.isHost ? '#3b82f6' : '#9ca3af'};overflow:hidden;">${avatarHtml}</div>
+                        <span>${p.name} ${p.isHost ? '(房主)' : ''}</span>
+                        ${isHost && !p.isHost ? `<button class="btn btn-xs btn-danger" onclick="kickPlayer('${p.id}')">✕</button>` : ''}
+                    </div>
+                    <span class="ready-badge ${p.ready ? 'ready' : ''}">${p.ready ? '已准备' : '未准备'}</span>
+                `;
+                if (p.id === playerId) item.style.background = '#f0f9ff';
+                listDiv.appendChild(item);
+            });
+            document.getElementById('waitingSettings').textContent = `人数上限 ${maxPlayers} | 回合限时 ${turnTimeLimit}秒`;
+            if (isHost) {
+                const allReady = playersList.every(p => p.ready);
+                const btn = document.getElementById('startGameBtn');
+                btn.disabled = !allReady || playersList.length < 2;
+                btn.style.opacity = (!allReady || playersList.length < 2) ? '0.5' : '1';
+                btn.textContent = playersList.length < 2 ? '至少2人' : (allReady ? '开始游戏' : '等待准备');
+            }
+        }
+        function toggleReady() {
+            isReady = !isReady;
+            const me = playersList.find(p => p.id === playerId);
+            if (me) me.ready = isReady;
+            if (networkMode === 'client') sendToHost({ type: 'ready_update', playerId, ready: isReady });
+            updateWaitingUI();
+        }
+        function leaveRoom() {
+            if (networkMode === 'client') sendToHost({ type: 'leave_room', playerId });
+            if (networkMode === 'host') destroyNetwork();
+            closeModal('waitingRoomModal');
+            location.reload();
+        }
+        function kickPlayer(targetId) {
+            msg('踢出玩家', '确定要踢出该玩家吗？', () => {
+                if (networkMode === 'host') {
+                    playersList = playersList.filter(p => p.id !== targetId);
+                    sendToClient(targetId, { type: 'kicked' });
+                    delete clientIdToPeerIdMap[targetId];
+                    broadcastToClients({ type: 'room_update', playersList });
+                    updateWaitingUI();
+                }
+            });
+        }
+        function hostStartGame() {
+            if (playersList.length < 2 || !playersList.every(p => p.ready)) return;
+            startDicePhase();
+        }
+        function startSolo() {
+            playerName = document.getElementById('playerNameInput').value.trim() || '玩家';
+            playerAvatar = document.getElementById('profileAvatar').src;
+            isHost = true;
+            roomId = 'SOLO';
+            playerId = 'human_player';
+            maxPlayers = 4;
+            turnTimeLimit = 60;
+            playersList = [{ id: playerId, name: playerName, avatar: playerAvatar, isHost: true, isAI: false, ready: true }];
+            for (let i = 0; i < 3; i++) {
+                playersList.push({ id: 'ai_' + i, name: AI_NAMES[Math.floor(Math.random() * AI_NAMES.length)] + (i + 1), avatar: '', isHost: false, isAI: true, ready: true });
+            }
+            const deck = createDeck();
+            const chartCount = playersList.length - 1;
+            const charts = generateChart(chartCount);
+            const hands = {};
+            playersList.forEach(p => { hands[p.id] = []; for (let i = 0; i < 7; i++) { if (deck.length === 0) deck = createDeck(); hands[p.id].push(deck.pop()); } });
+            gameState = {
+                roomId, players: playersList, deck, charts,
+                currentTurn: shuffle(playersList.map(p => p.id))[0],
+                turnOrder: playersList.map(p => p.id),
+                hands, round: 1, status: 'playing', winners: [],
+                alivePlayers: playersList.map(p => p.id), eliminated: [],
+                direction: 1, maxPlayers: playersList.length, gameMode: 'standard',
+                turnTimeLimit: 60, isDebug: true, discardPile: [], wastePools: {},
+                frozenPlayers: {}, turnCount: 0
+            };
+            enterGameScreen();
+        }
+        function enterGameScreen() {
+            ['startScreen', 'createRoomModal', 'joinRoomModal', 'waitingRoomModal'].forEach(id => document.getElementById(id).classList.add('hidden'));
+            document.getElementById('gameBoard').classList.remove('hidden');
+            updateGameStateForClient(gameState);
+            startTurnTimer();
+            if (gameState.isDebug) startAILoop();
+        }
+        function startDicePhase() {
+            diceResults = {};
+            const activePlayers = playersList.filter(p => p.ready);
+            showModal('diceModal');
+            document.getElementById('diceInfo').textContent = '掷骰子中...';
+            document.getElementById('diceResults').innerHTML = '';
+            let delay = 0;
+            activePlayers.forEach(p => {
+                setTimeout(() => {
+                    const d1 = Math.floor(Math.random() * 6) + 1;
+                    const d2 = Math.floor(Math.random() * 6) + 1;
+                    diceResults[p.id] = { d1, d2, sum: d1 + d2 };
+                    renderDiceResults();
+                }, delay);
+                delay += 800;
+            });
+            setTimeout(() => {
+                const ids = activePlayers.map(p => p.id);
+                const maxSum = Math.max(...ids.map(id => diceResults[id].sum));
+                const winners = ids.filter(id => diceResults[id].sum === maxSum);
+                if (winners.length > 1) {
+                    document.getElementById('diceInfo').textContent = `平局！${winners.map(id => playersList.find(p => p.id === id).name).join('、')} 重赛`;
+                    const tiePlayers = winners.map(id => playersList.find(p => p.id === id));
+                    tiePlayers.forEach(p => diceResults[p.id] = null);
+                    tiePlayers.forEach(p => {
+                        setTimeout(() => {
+                            const d1 = Math.floor(Math.random() * 6) + 1;
+                            const d2 = Math.floor(Math.random() * 6) + 1;
+                            diceResults[p.id] = { d1, d2, sum: d1 + d2 };
+                            renderDiceResults();
+                        }, delay);
+                        delay += 800;
+                    });
+                    setTimeout(() => {
+                        const newWinners = tiePlayers.filter(p => diceResults[p.id] && diceResults[p.id].sum === Math.max(...tiePlayers.map(pp => diceResults[pp.id].sum)));
+                        finishDice(newWinners);
+                    }, delay + 500);
+                } else finishDice(winners);
+            }, delay + 1000);
+        }
+        function renderDiceResults() {
+            const container = document.getElementById('diceResults');
+            container.innerHTML = '';
+            Object.keys(diceResults).forEach(id => {
+                const res = diceResults[id];
+                if (!res) return;
+                const p = playersList.find(p => p.id === id);
+                const div = document.createElement('div');
+                div.style.cssText = 'display:flex;flex-direction:column;align-items:center;';
+                div.innerHTML = `<div class="player-avatar" style="background:#3b82f6;">${p.name[0]}</div><div style="font-size:12px;">${p.name}</div><div style="display:flex;gap:8px;margin:4px 0;"><div style="width:40px;height:40px;background:#fff;border:3px solid #1f2937;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;">${res.d1}</div><div style="width:40px;height:40px;background:#fff;border:3px solid #1f2937;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;">${res.d2}</div></div><div style="font-weight:700;">总和: ${res.sum}</div>`;
+                container.appendChild(div);
+            });
+        }
+        function finishDice(winners) {
+            closeModal('diceModal');
+            const readyIds = playersList.filter(p => p.ready).map(p => p.id);
+            const safeIds = readyIds.length > 0 ? readyIds : playersList.map(p => p.id);
+            const winnerId = winners && winners.length > 0 ? winners[0].id : safeIds[0];
+            let startIndex = safeIds.indexOf(winnerId);
+            if (startIndex === -1) startIndex = 0;
+            const orderedIds = [];
+            for (let i = 0; i < safeIds.length; i++) orderedIds.push(safeIds[(startIndex + i) % safeIds.length]);
+            const deck = createDeck();
+            const charts = generateChart(safeIds.length - 1);
+            const hands = {};
+            safeIds.forEach(id => { hands[id] = []; for (let i = 0; i < 7; i++) { if (deck.length === 0) deck = createDeck(); hands[id].push(deck.pop()); } });
+            gameState = {
+                roomId, players: playersList, deck, charts,
+                currentTurn: orderedIds[0], turnOrder: orderedIds,
+                hands, round: 1, status: 'playing', winners: [],
+                alivePlayers: safeIds.slice(), eliminated: [], direction: 1,
+                maxPlayers, turnTimeLimit, isDebug: false,
+                discardPile: [], wastePools: {}, frozenPlayers: {}, turnCount: 0
+            };
+            if (networkMode === 'host') broadcastToClients({ type: 'game_start', gameState });
+            enterGameScreen();
+        }
+        function showTutorial() { showModal('tutorialModal'); }
+
+        // ==================== 初始化 ====================
+        const profile = loadProfile();
+        document.getElementById('playerNameInput').value = profile.name || '';
+        document.getElementById('profileAvatar').src = profile.avatar || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect width='64' height='64' fill='%23e5e7eb'/%3E%3Ctext x='32' y='40' text-anchor='middle' font-size='32'%3E👤%3C/text%3E%3C/svg%3E";
+        playerName = profile.name || '玩家';
+        playerAvatar = profile.avatar || '';
+
+        document.getElementById('avatarFileInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                playerAvatar = ev.target.result;
+                document.getElementById('profileAvatar').src = playerAvatar;
+                saveProfile(playerName, playerAvatar);
+            };
+            reader.readAsDataURL(file);
+        });
+        document.getElementById('playerNameInput').addEventListener('input', () => {
+            playerName = document.getElementById('playerNameInput').value.trim() || '玩家';
+            saveProfile(playerName, playerAvatar);
+        });
+        document.getElementById('maxPlayersSlider').addEventListener('input', (e) => {
+            document.getElementById('maxPlayersValue').textContent = e.target.value;
+        });
+        document.getElementById('turnTimeSlider').addEventListener('input', (e) => {
+            document.getElementById('turnTimeValue').textContent = e.target.value;
+        });
+
+        // 暴露全局函数
+        window.showCreateRoom = showCreateRoom;
+        window.confirmCreateRoom = confirmCreateRoom;
+        window.showJoinRoom = showJoinRoom;
+        window.confirmJoinRoom = confirmJoinRoom;
+        window.toggleReady = toggleReady;
+        window.leaveRoom = leaveRoom;
+        window.kickPlayer = kickPlayer;
+        window.hostStartGame = hostStartGame;
+        window.startSolo = startSolo;
+        window.showTutorial = showTutorial;
+        window.closeModal = closeModal;
+        window.randomName = randomName;
+        window.onCardClick = onCardClick;
+        window.drawCard = drawCard;
+    </script>
+</body>
+</html>
